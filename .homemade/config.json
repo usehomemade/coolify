@@ -2,55 +2,67 @@
   "$schema": "https://homemade.dev/schemas/config.json",
   "size": "medium",
   "env_schema": [
+    "APP_URL",
+    "APP_ENV",
+    "APP_DEBUG",
+    "DB_HOST",
+    "DB_PORT",
+    "DB_DATABASE",
+    "DB_USERNAME",
+    "REDIS_HOST",
+    "REDIS_PORT",
+    "PUSHER_PORT",
+    "PUSHER_SCHEME",
     {
-      "key": "COOLIFY_URL",
-      "default": "${HOMEMADE_URL_8000}"
+      "key": "DB_PASSWORD",
+      "generate": true
     },
     {
-      "key": "COOLIFY_VITE_URL",
-      "default": "${HOMEMADE_URL_5173}"
-    },
-    {
-      "key": "VITE_PROTOCOL",
-      "default": "https"
-    },
-    {
-      "key": "PUSHER_PORT",
-      "default": "443"
-    },
-    {
-      "key": "PUSHER_SCHEME",
-      "default": "https"
+      "key": "COOLIFY_DEV_SECRET",
+      "generate": true
     }
   ],
   "warmup": [
     "sudo mkdir -p /data/coolify/image-scans && sudo chown $USER: /data/coolify/image-scans",
-    "touch .env",
-    "docker compose -p coolify -f docker-compose.yml -f docker-compose.dev.yml build",
-    "docker compose -p coolify -f docker-compose.yml -f docker-compose.dev.yml pull --ignore-buildable"
+    "touch .env && chmod +x .homemade/init-setup.sh",
+    "docker compose -p coolify -f docker-compose.yml -f docker-compose.dev.yml -f .homemade/compose.yaml build coolify testing-host coolify-helper",
+    "docker compose -p coolify -f docker-compose.yml -f docker-compose.dev.yml -f .homemade/compose.yaml pull --ignore-buildable",
+    "docker compose -p coolify -f docker-compose.yml -f docker-compose.dev.yml -f .homemade/compose.yaml run --rm --no-deps --pull never --entrypoint composer coolify install --no-interaction",
+    "docker compose -p coolify -f docker-compose.yml -f docker-compose.dev.yml -f .homemade/compose.yaml run --rm --no-deps --pull never --entrypoint npm vite ci",
+    "docker compose -p coolify -f docker-compose.yml -f docker-compose.dev.yml -f .homemade/compose.yaml run --rm --no-deps --pull never --entrypoint npm vite run build",
+    "sudo chown -R $USER: node_modules vendor storage bootstrap/cache public/build"
   ],
   "install": [
     "sudo mkdir -p /data/coolify/image-scans && sudo chown $USER: /data/coolify/image-scans",
-    "test -s .env || { cp .env.development.example .env && sed -i \"s|^APP_KEY=.*|APP_KEY=base64:$(openssl rand -base64 32)|\" .env; }",
-    "sed -i \"s|^APP_URL=.*|APP_URL=$COOLIFY_URL|\" .env",
-    "sed -i 's|clientPort: vitePort|clientPort: 443|; s|origin: `${viteProtocol}://${viteHost}:${vitePort}`|origin: `${viteProtocol}://${viteHost}`|' vite.config.js",
-    "docker compose -p coolify -f docker-compose.yml -f docker-compose.dev.yml build"
+    "python3 .homemade/prepare-env.py && chmod +x .homemade/init-setup.sh && rm -f public/hot",
+    "docker compose -p coolify -f docker-compose.yml -f docker-compose.dev.yml -f .homemade/compose.yaml run --rm --no-deps --pull never --entrypoint composer coolify install --no-interaction",
+    "[ node_modules/.package-lock.json -nt package-lock.json ] || docker compose -p coolify -f docker-compose.yml -f docker-compose.dev.yml -f .homemade/compose.yaml run --rm --no-deps --pull never --entrypoint npm vite ci"
   ],
   "services": {
     "web": {
-      "displayName": "Coolify",
-      "cmd": "VITE_HOST=${COOLIFY_VITE_URL#https://} exec docker compose -p coolify -f docker-compose.yml -f docker-compose.dev.yml up",
+      "displayName": "Coolify (development)",
+      "cmd": "exec docker compose -p coolify -f docker-compose.yml -f docker-compose.dev.yml -f .homemade/compose.yaml up --no-build --pull never coolify postgres redis vite testing-host mailpit minio",
       "port": 8000,
       "url": true,
+      "publicHost": true,
       "share": "owner",
       "healthcheck": {
         "path": "/login"
       }
     },
-    "vite": {
-      "displayName": "Vite (assets, live reload)",
-      "port": 5173,
-      "url": true
+    "db": {
+      "displayName": "PostgreSQL",
+      "port": 5432,
+      "healthcheck": {
+        "cmd": "docker exec coolify-db pg_isready -U coolify -h 127.0.0.1 -q"
+      }
+    },
+    "redis": {
+      "displayName": "Redis",
+      "port": 6379,
+      "healthcheck": {
+        "cmd": "docker exec coolify-redis redis-cli ping | grep -q PONG"
+      }
     }
   }
 }
