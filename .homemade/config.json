@@ -23,25 +23,26 @@
     }
   ],
   "warmup": [
-    "sudo mkdir -p /data/coolify/image-scans && sudo chown $USER: /data/coolify/image-scans",
-    "touch .env && chmod +x .homemade/init-setup.sh",
-    "docker compose -p coolify -f docker-compose.yml -f docker-compose.dev.yml -f .homemade/compose.yaml build coolify testing-host coolify-helper",
-    "docker compose -p coolify -f docker-compose.yml -f docker-compose.dev.yml -f .homemade/compose.yaml pull --ignore-buildable",
-    "docker compose -p coolify -f docker-compose.yml -f docker-compose.dev.yml -f .homemade/compose.yaml run --rm --no-deps --pull never --entrypoint composer coolify install --no-interaction",
-    "docker compose -p coolify -f docker-compose.yml -f docker-compose.dev.yml -f .homemade/compose.yaml run --rm --no-deps --pull never --entrypoint npm vite ci",
-    "docker compose -p coolify -f docker-compose.yml -f docker-compose.dev.yml -f .homemade/compose.yaml run --rm --no-deps --pull never --entrypoint npm vite run build",
-    "sudo chown -R $USER: node_modules vendor storage bootstrap/cache public/build"
+    "sudo mkdir -p /data/coolify/image-scans && sudo chown $(id -u):$(id -g) /data/coolify/image-scans",
+    "python3 - <<'PY'\nfrom pathlib import Path\np = Path('.dev-instances')\np.mkdir(exist_ok=True)\n(p / 'homemade-compose.yaml').write_text('services:\\n  coolify:\\n    depends_on:\\n      postgres:\\n        condition: service_healthy\\n      redis:\\n        condition: service_healthy\\n    volumes:\\n      - ./storage/app/homemade/init-setup.sh:/etc/s6-overlay/scripts/init-setup.sh:ro\\n  vite:\\n    command: [\"npm\", \"run\", \"build\", \"--\", \"--watch\"]\\n    ports: !reset []\\n')\np = Path('storage/app/homemade')\np.mkdir(parents=True, exist_ok=True)\nf = p / 'init-setup.sh'\nf.write_text('#!/command/with-contenv sh\\nset -eu\\ncd /var/www/html\\nmkdir -p storage/framework/cache storage/framework/sessions storage/framework/views storage/logs bootstrap/cache\\ntouch storage/logs/laravel.log\\nchown -R www-data:www-data storage bootstrap/cache\\nphp artisan migrate --step --force\\nphp artisan dev --init\\nchown -R www-data:www-data storage bootstrap/cache\\n')\nf.chmod(0o755)\np = Path('.env')\nif not p.exists():\n    p.write_text(Path('.env.development.example').read_text())\nPY",
+    "docker compose -p coolify -f docker-compose.yml -f docker-compose.dev.yml -f .dev-instances/homemade-compose.yaml build coolify testing-host coolify-helper",
+    "docker compose -p coolify -f docker-compose.yml -f docker-compose.dev.yml -f .dev-instances/homemade-compose.yaml pull --ignore-buildable",
+    "docker compose -p coolify -f docker-compose.yml -f docker-compose.dev.yml -f .dev-instances/homemade-compose.yaml run --rm --no-deps --pull never --entrypoint composer coolify install --no-interaction",
+    "docker compose -p coolify -f docker-compose.yml -f docker-compose.dev.yml -f .dev-instances/homemade-compose.yaml run --rm --no-deps --pull never --entrypoint npm vite ci",
+    "docker compose -p coolify -f docker-compose.yml -f docker-compose.dev.yml -f .dev-instances/homemade-compose.yaml run --rm --no-deps --pull never --entrypoint npm vite run build",
+    "sudo chown -R $(id -u):$(id -g) node_modules vendor storage bootstrap/cache public/build"
   ],
   "install": [
-    "sudo mkdir -p /data/coolify/image-scans && sudo chown $USER: /data/coolify/image-scans",
-    "python3 .homemade/prepare-env.py && chmod +x .homemade/init-setup.sh && rm -f public/hot",
-    "docker compose -p coolify -f docker-compose.yml -f docker-compose.dev.yml -f .homemade/compose.yaml run --rm --no-deps --pull never --entrypoint composer coolify install --no-interaction",
-    "[ node_modules/.package-lock.json -nt package-lock.json ] || docker compose -p coolify -f docker-compose.yml -f docker-compose.dev.yml -f .homemade/compose.yaml run --rm --no-deps --pull never --entrypoint npm vite ci"
+    "sudo mkdir -p /data/coolify/image-scans && sudo chown $(id -u):$(id -g) /data/coolify/image-scans",
+    "python3 - <<'PY'\nfrom pathlib import Path\np = Path('.dev-instances')\np.mkdir(exist_ok=True)\n(p / 'homemade-compose.yaml').write_text('services:\\n  coolify:\\n    depends_on:\\n      postgres:\\n        condition: service_healthy\\n      redis:\\n        condition: service_healthy\\n    volumes:\\n      - ./storage/app/homemade/init-setup.sh:/etc/s6-overlay/scripts/init-setup.sh:ro\\n  vite:\\n    command: [\"npm\", \"run\", \"build\", \"--\", \"--watch\"]\\n    ports: !reset []\\n')\np = Path('storage/app/homemade')\np.mkdir(parents=True, exist_ok=True)\nf = p / 'init-setup.sh'\nf.write_text('#!/command/with-contenv sh\\nset -eu\\ncd /var/www/html\\nmkdir -p storage/framework/cache storage/framework/sessions storage/framework/views storage/logs bootstrap/cache\\ntouch storage/logs/laravel.log\\nchown -R www-data:www-data storage bootstrap/cache\\nphp artisan migrate --step --force\\nphp artisan dev --init\\nchown -R www-data:www-data storage bootstrap/cache\\n')\nf.chmod(0o755)\np = Path('.env')\nif not p.exists():\n    p.write_text(Path('.env.development.example').read_text())\nPY",
+    "python3 - <<'PY'\nimport os, base64, hashlib\nfrom pathlib import Path\np = Path('.env')\nvalues = dict(line.split('=', 1) for line in p.read_text().splitlines() if '=' in line and not line.startswith('#'))\nfor key in ['APP_URL', 'APP_ENV', 'APP_DEBUG', 'DB_HOST', 'DB_PORT', 'DB_DATABASE', 'DB_USERNAME', 'DB_PASSWORD', 'REDIS_HOST', 'REDIS_PORT', 'PUSHER_PORT', 'PUSHER_SCHEME']:\n    if key in os.environ:\n        values[key] = os.environ[key]\nsecret = os.environ['COOLIFY_DEV_SECRET']\nvalues['APP_KEY'] = 'base64:' + base64.b64encode(hashlib.sha256(secret.encode()).digest()).decode()\np.write_text(''.join(key + '=' + value + '\\n' for key, value in values.items()))\np.chmod(0o600)\nPath('public/hot').unlink(missing_ok=True)\nPY",
+    "docker compose -p coolify -f docker-compose.yml -f docker-compose.dev.yml -f .dev-instances/homemade-compose.yaml run --rm --no-deps --pull never --entrypoint composer coolify install --no-interaction",
+    "[ node_modules/.package-lock.json -nt package-lock.json ] || docker compose -p coolify -f docker-compose.yml -f docker-compose.dev.yml -f .dev-instances/homemade-compose.yaml run --rm --no-deps --pull never --entrypoint npm vite ci"
   ],
   "services": {
     "web": {
       "displayName": "Coolify (development)",
-      "cmd": "exec docker compose -p coolify -f docker-compose.yml -f docker-compose.dev.yml -f .homemade/compose.yaml up --no-build --pull never coolify postgres redis vite testing-host mailpit minio",
+      "cmd": "exec docker compose -p coolify -f docker-compose.yml -f docker-compose.dev.yml -f .dev-instances/homemade-compose.yaml up --no-build --pull never coolify postgres redis vite testing-host mailpit minio",
       "port": 8000,
       "url": true,
       "publicHost": true,
